@@ -5,20 +5,11 @@ import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./interfaces/IQuoter.sol";
 import "./interfaces/IUniswapV3Pool.sol";
 import "./interfaces/ISwapRouter.sol";
 import "./libraries/LiquidityAmounts.sol";
 import "./libraries/TickMath.sol";
-
-interface IQuoter {
-    function quoteExactInputSingle(
-        address tokenIn,
-        address tokenOut,
-        uint24 fee,
-        uint256 amountIn,
-        uint160 sqrtPriceLimitX96
-    ) external returns (uint256 amountOut);
-}
 
 contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     using SafeERC20 for IERC20;
@@ -338,16 +329,19 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         require(_assets > 0, "Cannot deposit 0 assets");
         require(address(_token) == address(TOKEN0) || address(_token) == address(TOKEN1), "T");
 
+        uint256 _existingProtocolFees = address(_token) == address(TOKEN0)
+            ? _protocolT0
+            : _protocolT1;
         _token.safeTransferFrom(_msgSender(), address(this), _assets);
 
         // Always swap half of the incoming token assets
-        uint256 _amountToSwap = _token.balanceOf(address(this)) / 2;
+        uint256 _amountToSwap = (_token.balanceOf(address(this)) - _existingProtocolFees) / 2;
         if (_amountToSwap > 0) {
             _swapTokens(_amountToSwap, address(_token) == address(TOKEN0));
         }
 
-        uint256 _amount0 = TOKEN0.balanceOf(address(this));
-        uint256 _amount1 = TOKEN1.balanceOf(address(this));
+        uint256 _amount0 = TOKEN0.balanceOf(address(this)) - _protocolT0;
+        uint256 _amount1 = TOKEN1.balanceOf(address(this)) - _protocolT1;
 
         (uint160 _sqrtPriceX96, int24 _currentTick, , , , , ) = POOL.slot0();
         (int24 _lowerTick, int24 _upperTick) = _calculateTicks(_currentTick);
@@ -365,8 +359,8 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         _deposit(address(this), _msgSender(), _liquidity, _shares);
 
         // Check and refund any remaining assets
-        uint256 _remainingToken0 = TOKEN0.balanceOf(address(this));
-        uint256 _remainingToken1 = TOKEN1.balanceOf(address(this));
+        uint256 _remainingToken0 = TOKEN0.balanceOf(address(this)) - _protocolT0;
+        uint256 _remainingToken1 = TOKEN1.balanceOf(address(this)) - _protocolT1;
 
         if (_remainingToken0 > 0) {
             TOKEN0.safeTransfer(_msgSender(), _remainingToken0);
@@ -430,16 +424,16 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
 
         require(_abs(_currentTick - _providedTick) <= ALLOWED_TICK_DIFFERENCE, "D");
 
-        uint256 _amount0 = TOKEN0.balanceOf(address(this));
-        uint256 _amount1 = TOKEN1.balanceOf(address(this));
+        uint256 _amount0 = TOKEN0.balanceOf(address(this)) - _protocolT0;
+        uint256 _amount1 = TOKEN1.balanceOf(address(this)) - _protocolT1;
 
         (uint256 _swapAmount, bool _zeroForOne) = _calculateSwapAmount(_amount0, _amount1);
         if (_swapAmount > 0) {
             _swapTokens(_swapAmount, _zeroForOne);
         }
 
-        _amount0 = TOKEN0.balanceOf(address(this));
-        _amount1 = TOKEN1.balanceOf(address(this));
+        _amount0 = TOKEN0.balanceOf(address(this)) - _protocolT0;
+        _amount1 = TOKEN1.balanceOf(address(this)) - _protocolT1;
         if (_amount0 == 0 || _amount1 == 0) {
             return;
         }
