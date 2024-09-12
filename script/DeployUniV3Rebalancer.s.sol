@@ -33,7 +33,7 @@ contract DeployUniV3Rebalancer is Script {
         address token1 = _pool.token1(); // USDC
 
         (uint128 _liquidity, , ) = rebalancer.getLiquidityAndRequiredAmountsFromToken(
-            50 * 1e6,
+            10 * 1e6,
             token1
         );
 

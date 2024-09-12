@@ -225,10 +225,6 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         uint256 _liquidity,
         uint256 _shares
     ) internal virtual override {
-        // Record initial token balances
-        uint256 _initialToken0Balance = TOKEN0.balanceOf(address(this));
-        uint256 _initialToken1Balance = TOKEN1.balanceOf(address(this));
-
         // Rebalance before depositing
         _rebalanceAtCurrentTick();
 
@@ -241,6 +237,10 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
             TickMath.getSqrtRatioAtTick(_upperTick),
             uint128(_liquidity)
         );
+
+        // Record initial token balances before transfer
+        uint256 _initialToken0Balance = TOKEN0.balanceOf(address(this));
+        uint256 _initialToken1Balance = TOKEN1.balanceOf(address(this));
 
         if (_caller != address(this)) {
             TOKEN0.safeTransferFrom(_caller, address(this), _amount0);
@@ -269,9 +269,13 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         if (_caller == address(this)) {
             return;
         }
+
+        uint256 _bal0 = TOKEN0.balanceOf(address(this));
+        uint256 _bal1 = TOKEN1.balanceOf(address(this));
+
         // Calculate and refund any leftover tokens
-        uint256 _leftoverToken0 = TOKEN0.balanceOf(address(this)) - _initT0Bal;
-        uint256 _leftoverToken1 = TOKEN1.balanceOf(address(this)) - _initT1Bal;
+        uint256 _leftoverToken0 = _bal0 > _initT0Bal ? _bal0 - _initT0Bal : 0;
+        uint256 _leftoverToken1 = _bal1 > _initT1Bal ? _bal1 - _initT1Bal : 0;
 
         if (_leftoverToken0 > 0) {
             TOKEN0.safeTransfer(_caller, _leftoverToken0);
@@ -292,17 +296,29 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
             _spendAllowance(_owner, _caller, _shares);
         }
 
+        uint256 _sharesBefore = totalSupply();
         _burn(_owner, _shares);
+
+        // Record initial token balances before LP removal
+        (uint256 _unclaimedFees0, uint256 _unclaimedFees1) = _getPendingFees();
+        uint256 _initialToken0Balance = TOKEN0.balanceOf(address(this));
+        uint256 _initialToken1Balance = TOKEN1.balanceOf(address(this));
 
         _removeLiquidity(uint128(_liquidity), _currentLowerTick, _currentUpperTick);
 
-        uint256 _token0Remaining = TOKEN0.balanceOf(address(this)) - _protocolT0;
+        uint256 _token0Remaining = TOKEN0.balanceOf(address(this)) -
+            _initialToken0Balance -
+            _unclaimedFees0 +
+            ((_unclaimedFees0 * _shares) / _sharesBefore);
         uint256 _token0Refund = (_token0Remaining * (1000 - _protocolFee)) / 1000;
         _protocolT0 += _token0Remaining - _token0Refund;
         if (_token0Refund > 0) {
             TOKEN0.safeTransfer(_receiver, _token0Refund);
         }
-        uint256 _token1Remaining = TOKEN1.balanceOf(address(this)) - _protocolT1;
+        uint256 _token1Remaining = TOKEN1.balanceOf(address(this)) -
+            _initialToken1Balance -
+            _unclaimedFees1 +
+            ((_unclaimedFees1 * _shares) / _sharesBefore);
         uint256 _token1Refund = (_token1Remaining * (1000 - _protocolFee)) / 1000;
         _protocolT1 += _token1Remaining - _token1Refund;
         if (_token1Refund > 0) {
@@ -580,40 +596,57 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         );
     }
 
-    function _getPendingFees() internal view returns (uint256 fee0, uint256 fee1) {
-        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = POOL.positions(
-            keccak256(abi.encodePacked(address(this), _currentLowerTick, _currentUpperTick))
-        );
+    function _getPendingFees() internal view returns (uint256 _fee0, uint256 _fee1) {
+        (, uint256 _feeGrowthInside0LastX128, uint256 _feeGrowthInside1LastX128, , ) = POOL
+            .positions(
+                keccak256(abi.encodePacked(address(this), _currentLowerTick, _currentUpperTick))
+            );
 
-        (, , uint256 feeGrowthOutside0LowerX128, uint256 feeGrowthOutside1LowerX128, , , , ) = POOL
-            .ticks(_currentLowerTick);
-        (, , uint256 feeGrowthOutside0UpperX128, uint256 feeGrowthOutside1UpperX128, , , , ) = POOL
-            .ticks(_currentUpperTick);
+        (
+            ,
+            ,
+            uint256 _feeGrowthOutside0LowerX128,
+            uint256 _feeGrowthOutside1LowerX128,
+            ,
+            ,
+            ,
 
-        uint256 feeGrowthBelow0X128 = _currentLowerTick > TickMath.MIN_TICK
-            ? feeGrowthOutside0LowerX128
+        ) = POOL.ticks(_currentLowerTick);
+        (
+            ,
+            ,
+            uint256 _feeGrowthOutside0UpperX128,
+            uint256 _feeGrowthOutside1UpperX128,
+            ,
+            ,
+            ,
+
+        ) = POOL.ticks(_currentUpperTick);
+
+        uint256 _feeGrowthBelow0X128 = _currentLowerTick > TickMath.MIN_TICK
+            ? _feeGrowthOutside0LowerX128
             : 0;
-        uint256 feeGrowthBelow1X128 = _currentLowerTick > TickMath.MIN_TICK
-            ? feeGrowthOutside1LowerX128
+        uint256 _feeGrowthBelow1X128 = _currentLowerTick > TickMath.MIN_TICK
+            ? _feeGrowthOutside1LowerX128
             : 0;
-        uint256 feeGrowthAbove0X128 = _currentUpperTick < TickMath.MAX_TICK
-            ? feeGrowthOutside0UpperX128
+        uint256 _feeGrowthAbove0X128 = _currentUpperTick < TickMath.MAX_TICK
+            ? _feeGrowthOutside0UpperX128
             : 0;
-        uint256 feeGrowthAbove1X128 = _currentUpperTick < TickMath.MAX_TICK
-            ? feeGrowthOutside1UpperX128
+        uint256 _feeGrowthAbove1X128 = _currentUpperTick < TickMath.MAX_TICK
+            ? _feeGrowthOutside1UpperX128
             : 0;
 
         uint256 feeGrowthInside0X128 = POOL.feeGrowthGlobal0X128() -
-            feeGrowthBelow0X128 -
-            feeGrowthAbove0X128;
+            _feeGrowthBelow0X128 -
+            _feeGrowthAbove0X128;
         uint256 feeGrowthInside1X128 = POOL.feeGrowthGlobal1X128() -
-            feeGrowthBelow1X128 -
-            feeGrowthAbove1X128;
+            _feeGrowthBelow1X128 -
+            _feeGrowthAbove1X128;
 
         uint128 liquidity = _currentPosition(_currentLowerTick, _currentUpperTick);
 
-        fee0 = (uint256(liquidity) * (feeGrowthInside0X128 - feeGrowthInside0LastX128)) >> 128;
-        fee1 = (uint256(liquidity) * (feeGrowthInside1X128 - feeGrowthInside1LastX128)) >> 128;
+        _fee0 = (uint256(liquidity) * (feeGrowthInside0X128 - _feeGrowthInside0LastX128)) >> 128;
+        _fee1 = (uint256(liquidity) * (feeGrowthInside1X128 - _feeGrowthInside1LastX128)) >> 128;
     }
 
     function _sqrt(uint256 x) private pure returns (uint256 y) {
