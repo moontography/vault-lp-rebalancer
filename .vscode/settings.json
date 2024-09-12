@@ -1,0 +1,16 @@
+{
+  "solidity.linter": "solhint",
+  "solidity.packageDefaultDependenciesContractsDirectory": "src",
+  "solidity.packageDefaultDependenciesDirectory": "lib",
+  "editor.formatOnSave": true,
+  "[solidity]": {
+    "editor.defaultFormatter": "JuanBlanco.solidity",
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.fixAll.solhint": "explicit"
+    }
+  },
+  "solidity.formatter": "prettier",
+  "solidity.compileUsingRemoteVersion": "v0.8.19",
+  "solidity.lintOnSave": true
+}
