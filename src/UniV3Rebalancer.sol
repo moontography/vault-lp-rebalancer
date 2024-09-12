@@ -108,7 +108,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
             _liquidity
         );
         (uint256 _fee0, ) = _getPendingFees();
-        return _amount0 + TOKEN0.balanceOf(address(this)) + _fee0 - _protocolT0;
+        return _amount0 + _fee0;
     }
 
     function totalToken1Assets() external view returns (uint256) {
@@ -121,7 +121,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
             _liquidity
         );
         (, uint256 _fee1) = _getPendingFees();
-        return _amount1 + TOKEN1.balanceOf(address(this)) + _fee1 - _protocolT1;
+        return _amount1 + _fee1;
     }
 
     function currentPosition() external view returns (uint128, int24, int24, uint160, uint160) {
