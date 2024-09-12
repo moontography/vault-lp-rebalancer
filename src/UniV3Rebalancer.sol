@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.27;
 
+import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
 import "./interfaces/IUniswapV3Pool.sol";
 import "./interfaces/ISwapRouter.sol";
 import "./libraries/LiquidityAmounts.sol";
@@ -29,8 +29,8 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     IUniswapV3Pool public immutable POOL;
     ISwapRouter public immutable SWAP_ROUTER;
     IQuoter public immutable QUOTER;
-    IERC20 public TOKEN0;
-    IERC20 public TOKEN1;
+    IERC20 public immutable TOKEN0;
+    IERC20 public immutable TOKEN1;
 
     uint256 private constant MIN_REBALANCE_FREQUENCY = 10 minutes;
     int24 private constant ALLOWED_TICK_DIFFERENCE = 5;
@@ -52,13 +52,15 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     );
 
     constructor(
+        string memory _name,
+        string memory _symbol,
         IERC20 _asset,
         address _pool,
         address _swapRouter,
         address _quoter,
         uint256 _rebalancePercentage,
         address __protocol
-    ) ERC4626(_asset) ERC20("UniV3Rebalancer Vault", "UNI3RV") {
+    ) ERC4626(_asset) ERC20(_name, _symbol) {
         require(
             _rebalancePercentage > 0 && _rebalancePercentage < 1000,
             "Invalid rebalance percentage"
@@ -72,8 +74,8 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         lastRebalance = block.timestamp;
         _protocol = __protocol;
 
-        (, int24 currentTick, , , , , ) = IUniswapV3Pool(_pool).slot0();
-        (_currentLowerTick, _currentUpperTick) = _calculateTicks(currentTick);
+        (, int24 _currentTick, , , , , ) = IUniswapV3Pool(_pool).slot0();
+        (_currentLowerTick, _currentUpperTick) = _calculateTicks(_currentTick);
     }
 
     function uniswapV3MintCallback(
@@ -97,27 +99,29 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     }
 
     function totalToken0Assets() external view returns (uint256) {
-        (uint160 sqrtPriceX96, , , , , , ) = POOL.slot0();
-        uint128 liquidity = _currentPosition(_currentLowerTick, _currentUpperTick);
-        (uint256 amount0, ) = LiquidityAmounts.getAmountsForLiquidity(
-            sqrtPriceX96,
+        (uint160 _sqrtPriceX96, , , , , , ) = POOL.slot0();
+        uint128 _liquidity = _currentPosition(_currentLowerTick, _currentUpperTick);
+        (uint256 _amount0, ) = LiquidityAmounts.getAmountsForLiquidity(
+            _sqrtPriceX96,
             TickMath.getSqrtRatioAtTick(_currentLowerTick),
             TickMath.getSqrtRatioAtTick(_currentUpperTick),
-            liquidity
+            _liquidity
         );
-        return amount0 + TOKEN0.balanceOf(address(this));
+        (uint256 _fee0, ) = _getPendingFees();
+        return _amount0 + TOKEN0.balanceOf(address(this)) + _fee0 - _protocolT0;
     }
 
     function totalToken1Assets() external view returns (uint256) {
-        (uint160 sqrtPriceX96, , , , , , ) = POOL.slot0();
-        uint128 liquidity = _currentPosition(_currentLowerTick, _currentUpperTick);
-        (, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(
-            sqrtPriceX96,
+        (uint160 _sqrtPriceX96, , , , , , ) = POOL.slot0();
+        uint128 _liquidity = _currentPosition(_currentLowerTick, _currentUpperTick);
+        (, uint256 _amount1) = LiquidityAmounts.getAmountsForLiquidity(
+            _sqrtPriceX96,
             TickMath.getSqrtRatioAtTick(_currentLowerTick),
             TickMath.getSqrtRatioAtTick(_currentUpperTick),
-            liquidity
+            _liquidity
         );
-        return amount1 + TOKEN1.balanceOf(address(this));
+        (, uint256 _fee1) = _getPendingFees();
+        return _amount1 + TOKEN1.balanceOf(address(this)) + _fee1 - _protocolT1;
     }
 
     function currentPosition() external view returns (uint128, int24, int24, uint160, uint160) {
@@ -187,6 +191,32 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     ) public view virtual override returns (uint256 _assets) {
         uint256 _supply = totalSupply();
         return _supply == 0 ? _shares : (_shares * totalAssets()) / _supply;
+    }
+
+    function getLiquidityAndRequiredAmountsFromToken(
+        uint256 _inputAmount,
+        address _token
+    ) external view returns (uint128 _liquidity, uint256 _amount0, uint256 _amount1) {
+        require(address(_token) == address(TOKEN0) || address(_token) == address(TOKEN1), "T");
+        (uint160 _sqrtPriceX96, int24 _currentTick, , , , , ) = POOL.slot0();
+        (int24 _lowerTick, int24 _upperTick) = _calculateTicks(_currentTick);
+        _liquidity = _token == address(TOKEN0)
+            ? LiquidityAmounts.getLiquidityForAmount0(
+                TickMath.getSqrtRatioAtTick(_lowerTick),
+                TickMath.getSqrtRatioAtTick(_upperTick),
+                _inputAmount
+            )
+            : LiquidityAmounts.getLiquidityForAmount1(
+                TickMath.getSqrtRatioAtTick(_lowerTick),
+                TickMath.getSqrtRatioAtTick(_upperTick),
+                _inputAmount
+            );
+        (_amount0, _amount1) = LiquidityAmounts.getAmountsForLiquidity(
+            _sqrtPriceX96,
+            TickMath.getSqrtRatioAtTick(_lowerTick),
+            TickMath.getSqrtRatioAtTick(_upperTick),
+            _liquidity
+        );
     }
 
     function _deposit(
@@ -296,7 +326,9 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
 
         // Always swap half of the incoming token assets
         uint256 _amountToSwap = _token.balanceOf(address(this)) / 2;
-        _swapTokens(_amountToSwap, address(_token) == address(TOKEN0));
+        if (_amountToSwap > 0) {
+            _swapTokens(_amountToSwap, address(_token) == address(TOKEN0));
+        }
 
         uint256 _amount0 = TOKEN0.balanceOf(address(this));
         uint256 _amount1 = TOKEN1.balanceOf(address(this));
@@ -409,7 +441,9 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         emit Rebalanced(_newLowerTick, _newUpperTick, _newLiquidity, _addedAmount0, _addedAmount1);
     }
 
-    function calculateTicks(int24 _tick) external view returns (int24 lowerTick, int24 upperTick) {
+    function calculateTicks(
+        int24 _tick
+    ) external view returns (int24 _lowerTick, int24 _upperTick) {
         return _calculateTicks(_tick);
     }
 
@@ -428,10 +462,15 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         int24 _currentTick
     ) internal view returns (int24 _lowerTick, int24 _upperTick) {
         int24 _tickSpacing = POOL.tickSpacing();
-        int24 tickRange = int24(int256(REBALANCE_PERCENTAGE) * (TickMath.MAX_TICK / 1000));
+        uint160 _sqrtPriceX96 = TickMath.getSqrtRatioAtTick(_currentTick);
+        uint160 _sqrtPriceRangeX96 = uint160((REBALANCE_PERCENTAGE * _sqrtPriceX96) / 1000);
+        uint160 _sqrtPriceAX96 = _sqrtPriceX96 - _sqrtPriceRangeX96;
+        uint160 _sqrtPriceBX96 = _sqrtPriceX96 + _sqrtPriceRangeX96;
 
-        _lowerTick = ((_currentTick - tickRange) / _tickSpacing) * _tickSpacing;
-        _upperTick = ((_currentTick + tickRange) / _tickSpacing) * _tickSpacing;
+        _lowerTick = TickMath.getTickAtSqrtRatio(_sqrtPriceAX96);
+        _lowerTick -= _lowerTick % _tickSpacing;
+        _upperTick = TickMath.getTickAtSqrtRatio(_sqrtPriceBX96);
+        _upperTick -= _upperTick % _tickSpacing;
 
         _lowerTick = _lowerTick < TickMath.MIN_TICK ? TickMath.MIN_TICK : _lowerTick;
         _upperTick = _upperTick > TickMath.MAX_TICK ? TickMath.MAX_TICK : _upperTick;
@@ -539,6 +578,51 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
             amountIn,
             0 // We don't need to set a price limit for simulation
         );
+    }
+
+    function _getPendingFees() internal view returns (uint256 fee0, uint256 fee1) {
+        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = POOL.positions(
+            keccak256(abi.encodePacked(address(this), _currentLowerTick, _currentUpperTick))
+        );
+
+        (, , uint256 feeGrowthOutside0LowerX128, uint256 feeGrowthOutside1LowerX128, , , , ) = POOL
+            .ticks(_currentLowerTick);
+        (, , uint256 feeGrowthOutside0UpperX128, uint256 feeGrowthOutside1UpperX128, , , , ) = POOL
+            .ticks(_currentUpperTick);
+
+        uint256 feeGrowthBelow0X128 = _currentLowerTick > TickMath.MIN_TICK
+            ? feeGrowthOutside0LowerX128
+            : 0;
+        uint256 feeGrowthBelow1X128 = _currentLowerTick > TickMath.MIN_TICK
+            ? feeGrowthOutside1LowerX128
+            : 0;
+        uint256 feeGrowthAbove0X128 = _currentUpperTick < TickMath.MAX_TICK
+            ? feeGrowthOutside0UpperX128
+            : 0;
+        uint256 feeGrowthAbove1X128 = _currentUpperTick < TickMath.MAX_TICK
+            ? feeGrowthOutside1UpperX128
+            : 0;
+
+        uint256 feeGrowthInside0X128 = POOL.feeGrowthGlobal0X128() -
+            feeGrowthBelow0X128 -
+            feeGrowthAbove0X128;
+        uint256 feeGrowthInside1X128 = POOL.feeGrowthGlobal1X128() -
+            feeGrowthBelow1X128 -
+            feeGrowthAbove1X128;
+
+        uint128 liquidity = _currentPosition(_currentLowerTick, _currentUpperTick);
+
+        fee0 = (uint256(liquidity) * (feeGrowthInside0X128 - feeGrowthInside0LastX128)) >> 128;
+        fee1 = (uint256(liquidity) * (feeGrowthInside1X128 - feeGrowthInside1LastX128)) >> 128;
+    }
+
+    function _sqrt(uint256 x) private pure returns (uint256 y) {
+        uint256 z = (x + 1) / 2;
+        y = x;
+        while (z < y) {
+            y = z;
+            z = (x / z + z) / 2;
+        }
     }
 
     function _abs(int24 x) private pure returns (int24) {

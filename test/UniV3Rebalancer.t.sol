@@ -27,7 +27,9 @@ contract UniV3RebalancerTest is Test {
 
         // Deploy rebalancer
         rebalancer = new UniV3Rebalancer(
-            IERC20(address(token0)),
+            "Test",
+            "T",
+            IERC20(address(0)),
             address(pool),
             address(swapRouter),
             address(quoter),
@@ -372,6 +374,78 @@ contract UniV3RebalancerTest is Test {
             initialShares,
             "Total supply should increase after deposit"
         );
+    }
+
+    function testGetLiquidityAndRequiredAmountsFromToken() public {
+        (uint256 initialDeposit0, uint256 initialDeposit1) = _seed();
+
+        // Test with token0
+        (uint128 liquidity0, , uint256 amount1) = rebalancer
+            .getLiquidityAndRequiredAmountsFromToken(initialDeposit0, address(token0));
+
+        assertTrue(liquidity0 > 0, "Liquidity for token0 should be greater than 0");
+        assertTrue(amount1 > 0, "Amount1 should be greater than 0");
+        // assertEq(amount0, initialDeposit0, "Amount0 should equal the initial deposit");
+
+        // Test with token1
+        (uint128 liquidity1, uint256 amount0ForToken1, ) = rebalancer
+            .getLiquidityAndRequiredAmountsFromToken(initialDeposit1, address(token1));
+
+        assertTrue(liquidity1 > 0, "Liquidity for token1 should be greater than 0");
+        assertTrue(amount0ForToken1 > 0, "Amount0 for token1 deposit should be greater than 0");
+        // assertEq(
+        //     amount1ForToken1,
+        //     initialDeposit1,
+        //     "Amount1 for token1 deposit should equal the initial deposit"
+        // );
+
+        // Verify that liquidity is calculated correctly
+        (, int24 currentTick, , , , , ) = pool.slot0();
+        (int24 lowerTick, int24 upperTick) = rebalancer.calculateTicks(currentTick);
+
+        uint128 expectedLiquidity0 = LiquidityAmounts.getLiquidityForAmount0(
+            TickMath.getSqrtRatioAtTick(lowerTick),
+            TickMath.getSqrtRatioAtTick(upperTick),
+            initialDeposit0
+        );
+
+        uint128 expectedLiquidity1 = LiquidityAmounts.getLiquidityForAmount1(
+            TickMath.getSqrtRatioAtTick(lowerTick),
+            TickMath.getSqrtRatioAtTick(upperTick),
+            initialDeposit1
+        );
+
+        assertEq(
+            liquidity0,
+            expectedLiquidity0,
+            "Calculated liquidity for token0 should match expected value"
+        );
+        assertEq(
+            liquidity1,
+            expectedLiquidity1,
+            "Calculated liquidity for token1 should match expected value"
+        );
+
+        // // Verify that the amounts are consistent
+        // (uint256 verifyAmount0, uint256 verifyAmount1) = LiquidityAmounts.getAmountsForLiquidity(
+        //     sqrtPriceX96,
+        //     TickMath.getSqrtRatioAtTick(lowerTick),
+        //     TickMath.getSqrtRatioAtTick(upperTick),
+        //     liquidity0
+        // );
+
+        // assertApproxEqRel(
+        //     verifyAmount0,
+        //     amount0,
+        //     0.001e18,
+        //     "Verified amount0 should be close to calculated amount0"
+        // );
+        // assertApproxEqRel(
+        //     verifyAmount1,
+        //     amount1,
+        //     0.001e18,
+        //     "Verified amount1 should be close to calculated amount1"
+        // );
     }
 
     function _seed() internal returns (uint256 initialDeposit0, uint256 initialDeposit1) {
