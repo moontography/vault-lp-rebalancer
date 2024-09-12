@@ -458,12 +458,19 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     }
 
     function protocolCollect() external {
-        if (_protocolT0 > 0) {
-            TOKEN0.safeTransfer(_protocol, _protocolT0);
+        uint256 _assets = totalAssets();
+        uint256 _supply = totalSupply();
+        if (_supply == 0 && _assets > 0) {
+            _removeLiquidity(uint128(_assets), _currentLowerTick, _currentUpperTick);
+        }
+        uint256 _f0 = _supply == 0 ? TOKEN0.balanceOf(address(this)) : _protocolT0;
+        if (_f0 > 0) {
+            TOKEN0.safeTransfer(_protocol, _f0);
             _protocolT0 = 0;
         }
-        if (_protocolT1 > 0) {
-            TOKEN1.safeTransfer(_protocol, _protocolT1);
+        uint256 _f1 = _supply == 0 ? TOKEN1.balanceOf(address(this)) : _protocolT1;
+        if (_f1 > 0) {
+            TOKEN1.safeTransfer(_protocol, _f1);
             _protocolT1 = 0;
         }
     }
