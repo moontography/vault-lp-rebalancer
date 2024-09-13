@@ -24,7 +24,7 @@ contract DeployUniV3Rebalancer is Script {
             address(_pool),
             0xE592427A0AEce92De3Edee1F18E0157C05861564, // SwapRouter
             0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6, // Quoter
-            10,
+            5,
             _me
         );
 
