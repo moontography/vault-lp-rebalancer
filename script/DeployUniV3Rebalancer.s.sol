@@ -23,7 +23,6 @@ contract DeployUniV3Rebalancer is Script {
             IERC20(address(0)),
             address(_pool),
             0xE592427A0AEce92De3Edee1F18E0157C05861564, // SwapRouter
-            0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6, // Quoter
             5,
             _me
         );
@@ -33,7 +32,7 @@ contract DeployUniV3Rebalancer is Script {
         address token1 = _pool.token1(); // USDC
 
         (uint128 _liquidity, , ) = rebalancer.getLiquidityAndRequiredAmountsFromToken(
-            10 * 1e6,
+            2 * 1e6,
             token1
         );
 
