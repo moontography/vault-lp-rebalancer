@@ -48,8 +48,8 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         address indexed owner,
         uint256 assets,
         uint256 shares,
-        uint256 amount0Used,
-        uint256 amount1Used
+        uint256 amount0Withdrawn,
+        uint256 amount1Withdrawn
     );
     event Rebalanced(
         int24 newLowerTick,
