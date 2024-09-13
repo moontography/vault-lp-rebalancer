@@ -13,7 +13,6 @@ contract UniV3RebalancerTest is Test {
     IERC20 public token1;
     IUniswapV3Pool public pool;
     ISwapRouter public swapRouter;
-    IQuoter public quoter;
 
     uint256 public constant REBALANCE_PERCENTAGE = 50; // 5% range
 
@@ -21,7 +20,6 @@ contract UniV3RebalancerTest is Test {
         // Arbitrum One
         pool = IUniswapV3Pool(0xC6962004f452bE9203591991D15f6b388e09E8D0);
         swapRouter = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
-        quoter = IQuoter(0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6);
         token0 = IERC20(pool.token0());
         token1 = IERC20(pool.token1());
 
@@ -32,7 +30,6 @@ contract UniV3RebalancerTest is Test {
             IERC20(address(0)),
             address(pool),
             address(swapRouter),
-            address(quoter),
             REBALANCE_PERCENTAGE,
             address(this)
         );

@@ -5,7 +5,6 @@ import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "./interfaces/IQuoter.sol";
 import "./interfaces/IUniswapV3Pool.sol";
 import "./interfaces/ISwapRouter.sol";
 import "./libraries/LiquidityAmounts.sol";
@@ -19,7 +18,6 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     uint256 public immutable REBALANCE_PERCENTAGE;
     IUniswapV3Pool public immutable POOL;
     ISwapRouter public immutable SWAP_ROUTER;
-    IQuoter public immutable QUOTER;
     IERC20 public immutable TOKEN0;
     IERC20 public immutable TOKEN1;
 
@@ -65,7 +63,6 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         IERC20 _asset,
         address _pool,
         address _swapRouter,
-        address _quoter,
         uint256 _rebalancePercentage,
         address __protocol
     ) ERC4626(_asset) ERC20(_name, _symbol) {
@@ -75,7 +72,6 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         );
         POOL = IUniswapV3Pool(_pool);
         SWAP_ROUTER = ISwapRouter(_swapRouter);
-        QUOTER = IQuoter(_quoter);
         TOKEN0 = IERC20(IUniswapV3Pool(_pool).token0());
         TOKEN1 = IERC20(IUniswapV3Pool(_pool).token1());
         REBALANCE_PERCENTAGE = _rebalancePercentage;
@@ -442,6 +438,8 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     }
 
     function _rebalance(int24 _providedTick, int24 _currentTick) internal {
+        require(_abs(_currentTick - _providedTick) <= ALLOWED_TICK_DIFFERENCE, "D");
+
         (int24 _newLowerTick, int24 _newUpperTick) = _calculateTicks(_currentTick);
         if (_currentLowerTick == _newLowerTick) {
             return;
@@ -452,8 +450,6 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         if (_liquidity > 0) {
             _removeLiquidity(_liquidity, _currentLowerTick, _currentUpperTick);
         }
-
-        require(_abs(_currentTick - _providedTick) <= ALLOWED_TICK_DIFFERENCE, "D");
 
         uint256 _amount0 = TOKEN0.balanceOf(address(this)) - _protocolT0;
         uint256 _amount1 = TOKEN1.balanceOf(address(this)) - _protocolT1;
@@ -635,20 +631,6 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         });
 
         SWAP_ROUTER.exactInputSingle(params);
-    }
-
-    function _simulateSwap(uint256 amountIn, bool zeroForOne) internal returns (uint256 amountOut) {
-        address tokenIn = zeroForOne ? address(TOKEN0) : address(TOKEN1);
-        address tokenOut = zeroForOne ? address(TOKEN1) : address(TOKEN0);
-        uint24 fee = POOL.fee();
-
-        amountOut = QUOTER.quoteExactInputSingle(
-            tokenIn,
-            tokenOut,
-            fee,
-            amountIn,
-            0 // We don't need to set a price limit for simulation
-        );
     }
 
     function _getPendingFees() internal view returns (uint256 _fee0, uint256 _fee1) {
