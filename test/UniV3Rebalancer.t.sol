@@ -4,6 +4,7 @@ pragma solidity 0.8.27;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../src/UniV3Rebalancer.sol";
+import "../src/interfaces/IQuoter.sol";
 import "../src/interfaces/IUniswapV3Factory.sol";
 import "../src/interfaces/IUniswapV3Pool.sol";
 
@@ -11,6 +12,7 @@ contract UniV3RebalancerTest is Test {
     UniV3Rebalancer public rebalancer;
     IERC20 public token0;
     IERC20 public token1;
+    IQuoter public quoter;
     IUniswapV3Pool public pool;
     ISwapRouter public swapRouter;
 
@@ -18,8 +20,10 @@ contract UniV3RebalancerTest is Test {
 
     function setUp() public {
         // Arbitrum One
+        quoter = IQuoter(0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6);
         pool = IUniswapV3Pool(0xC6962004f452bE9203591991D15f6b388e09E8D0);
         swapRouter = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
+
         token0 = IERC20(pool.token0());
         token1 = IERC20(pool.token1());
 
@@ -30,6 +34,7 @@ contract UniV3RebalancerTest is Test {
             IERC20(address(0)),
             address(pool),
             address(swapRouter),
+            address(quoter),
             REBALANCE_PERCENTAGE,
             address(this)
         );

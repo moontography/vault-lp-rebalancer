@@ -5,6 +5,7 @@ import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./interfaces/IQuoter.sol";
 import "./interfaces/IUniswapV3Pool.sol";
 import "./interfaces/ISwapRouter.sol";
 import "./libraries/LiquidityAmounts.sol";
@@ -18,6 +19,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     uint256 public immutable REBALANCE_PERCENTAGE;
     IUniswapV3Pool public immutable POOL;
     ISwapRouter public immutable SWAP_ROUTER;
+    IQuoter public immutable QUOTER;
     IERC20 public immutable TOKEN0;
     IERC20 public immutable TOKEN1;
 
@@ -63,6 +65,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         IERC20 _asset,
         address _pool,
         address _swapRouter,
+        address _quoter,
         uint256 _rebalancePercentage,
         address __protocol
     ) ERC4626(_asset) ERC20(_name, _symbol) {
@@ -72,6 +75,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         );
         POOL = IUniswapV3Pool(_pool);
         SWAP_ROUTER = ISwapRouter(_swapRouter);
+        QUOTER = IQuoter(_quoter);
         TOKEN0 = IERC20(IUniswapV3Pool(_pool).token0());
         TOKEN1 = IERC20(IUniswapV3Pool(_pool).token1());
         REBALANCE_PERCENTAGE = _rebalancePercentage;
@@ -598,18 +602,44 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     function _calculateSwapAmount(
         uint256 _amount0,
         uint256 _amount1
-    ) internal view returns (uint256 _swapAmount, bool _zeroForOne) {
+    ) internal returns (uint256 _swapAmount, bool _zeroForOne) {
         (uint160 _sqrtPriceX96, , , , , , ) = POOL.slot0();
         uint256 _priceX96 = (uint256(_sqrtPriceX96) * uint256(_sqrtPriceX96)) / (1 << 96);
         uint256 _value0 = _amount0 * _priceX96;
         uint256 _value1 = _amount1 * (1 << 96);
 
         if (_value0 > _value1) {
-            _swapAmount = (_value0 - _value1) / (2 * _priceX96);
             _zeroForOne = true;
+            uint256 _targetValue = (_value0 + _value1) / 2;
+            uint256 _amountIn = _amount0 - (_targetValue / _priceX96);
+
+            // Use quoter to get the expected amount out
+            uint256 _amountOut = QUOTER.quoteExactInputSingle(
+                address(TOKEN0),
+                address(TOKEN1),
+                POOL.fee(),
+                _amountIn,
+                0
+            );
+
+            // Adjust the swap amount based on the quote
+            _swapAmount = (_amountIn * _amount1) / (_amountOut + _amount1);
         } else {
-            _swapAmount = (_value1 - _value0) / (2 * (1 << 96));
             _zeroForOne = false;
+            uint256 _targetValue = (_value0 + _value1) / 2;
+            uint256 _amountIn = _amount1 - (_targetValue / (1 << 96));
+
+            // Use quoter to get the expected amount out
+            uint256 _amountOut = QUOTER.quoteExactInputSingle(
+                address(TOKEN1),
+                address(TOKEN0),
+                POOL.fee(),
+                _amountIn,
+                0
+            );
+
+            // Adjust the swap amount based on the quote
+            _swapAmount = (_amountIn * _amount0) / (_amountOut + _amount0);
         }
     }
 
