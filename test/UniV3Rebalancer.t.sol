@@ -190,8 +190,8 @@ contract UniV3RebalancerTest is Test {
         // Check that the user's balance increased by approximately the withdrawal amount
         assertApproxEqRel(
             token0.balanceOf(address(this)) - initialBalance,
-            (_amount0ThatShouldBeWithdrawn * 99) / 100, // account for protocol fee
-            0.01e18, // 1% tolerance due to potential slippage
+            (_amount0ThatShouldBeWithdrawn * 970) / 1000, // account for 3% protocol fee
+            0.005e18, // 0.5% tolerance due to potential slippage
             "User should have received approximately the withdrawn assets"
         );
 
@@ -216,6 +216,36 @@ contract UniV3RebalancerTest is Test {
             totalAssets - withdrawAmount,
             0.01e18, // 1% tolerance due to potential slippage
             "Total assets should have decreased by approximately the withdrawn amount"
+        );
+
+        // Now account for if user has been here for longer than fee decay requirements
+        vm.warp(block.timestamp + 10 days);
+
+        (uint256 _amount0ThatShouldBeWithdrawn2, ) = LiquidityAmounts.getAmountsForLiquidity(
+            _sqrtPriceX96,
+            TickMath.getSqrtRatioAtTick(_lt),
+            TickMath.getSqrtRatioAtTick(_ut),
+            uint128(withdrawAmount)
+        );
+
+        // Perform withdrawal
+        uint256 initialBalance2 = token0.balanceOf(address(this));
+        uint256 sharesBurned2 = rebalancer.withdraw(withdrawAmount, address(this), address(this));
+
+        // Check that the correct number of shares were burned
+        assertApproxEqAbs(
+            sharesBurned2,
+            (withdrawAmount * sharesMinted) / totalAssets,
+            1, // 1 wei tolerance due to possible rounding
+            "Incorrect number of shares burned after waiting"
+        );
+
+        // Check that the user's balance increased by approximately the withdrawal amount
+        assertApproxEqRel(
+            token0.balanceOf(address(this)) - initialBalance2,
+            (_amount0ThatShouldBeWithdrawn2 * 995) / 1000, // account for 0.5% protocol fee
+            0.005e18, // 0.5% tolerance due to potential slippage
+            "User should have received approximately the withdrawn assets after waiting"
         );
     }
 

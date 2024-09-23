@@ -24,13 +24,19 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
     uint256 private constant MIN_REBALANCE_FREQUENCY = 10 minutes;
     int24 private constant ALLOWED_TICK_DIFFERENCE = 5;
 
+    uint16 PROTOCOL_FEE_PRECISION = 10000;
+    uint16 PROTOCOL_FEE_MIN = 50; // 0.5%
+    uint16 PROTOCOL_FEE_MAX = 300; // 3%
+    uint256 PROTOCOL_FEE_DECAY = 7 days;
+
     int24 _currentLowerTick;
     int24 _currentUpperTick;
 
     address _protocol;
     uint256 _protocolT0;
     uint256 _protocolT1;
-    uint8 _protocolFee = 5; // 0.5%
+
+    mapping(address => uint256) _lastDeposit;
 
     event Deposit(
         address indexed sender,
@@ -80,6 +86,15 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
 
         (, int24 _currentTick, , , , , ) = IUniswapV3Pool(_pool).slot0();
         (_currentLowerTick, _currentUpperTick) = _calculateTicks(_currentTick);
+    }
+
+    function _update(address _from, address _to, uint256 _value) internal override {
+        // If the _to user will receive more than 5% of their current holdings
+        // reset fees last deposit timestamp for user
+        if (_value >= balanceOf(_to) / 20) {
+            _lastDeposit[_to] = block.timestamp;
+        }
+        super._update(_from, _to, _value);
     }
 
     function uniswapV3MintCallback(
@@ -265,12 +280,17 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
 
         require(_liquidityAdded > 0, "No liquidity added");
 
-        _mint(_receiver, _shares);
+        _mintAndResetLastDep(_receiver, _shares);
 
         // Optionally refund extra tokens back to _caller
         _refundExtra(_caller, _initialToken0Balance, _initialToken1Balance);
 
         emit Deposit(_caller, _receiver, _liquidityAdded, _shares, _amount0Used, _amount1Used);
+    }
+
+    function _mintAndResetLastDep(address _receiver, uint256 _shares) internal {
+        _mint(_receiver, _shares);
+        _lastDeposit[_receiver] = block.timestamp;
     }
 
     function _refundExtra(address _caller, uint256 _initT0Bal, uint256 _initT1Bal) internal {
@@ -320,6 +340,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
 
         _checkAndRefundAfterRemoval(
             TOKEN0,
+            _owner,
             _receiver,
             _initialToken0Balance,
             _unclaimedFees0,
@@ -328,6 +349,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         );
         _checkAndRefundAfterRemoval(
             TOKEN1,
+            _owner,
             _receiver,
             _initialToken1Balance,
             _unclaimedFees1,
@@ -555,6 +577,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
 
     function _checkAndRefundAfterRemoval(
         IERC20 _token,
+        address _owner,
         address _receiver,
         uint256 _initialBal,
         uint256 _unclaimedFees,
@@ -565,7 +588,8 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
             _initialBal -
             _unclaimedFees +
             ((_unclaimedFees * _sharesRemoving) / _initialTotalSupply);
-        uint256 _refund = (_remaining * (1000 - _protocolFee)) / 1000;
+        uint256 _refund = (_remaining * (PROTOCOL_FEE_PRECISION - _getProtocolFee(_owner))) /
+            PROTOCOL_FEE_PRECISION;
         if (address(_token) == address(TOKEN0)) {
             _protocolT0 += _remaining - _refund;
         } else {
@@ -574,6 +598,20 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         if (_refund > 0) {
             _token.safeTransfer(_receiver, _refund);
         }
+    }
+
+    function _getProtocolFee(address _shareholder) internal view returns (uint16) {
+        if (_lastDeposit[_shareholder] == 0) {
+            return PROTOCOL_FEE_MAX;
+        }
+        uint256 _timeStaked = block.timestamp - _lastDeposit[_shareholder];
+        if (_timeStaked > PROTOCOL_FEE_DECAY) {
+            return PROTOCOL_FEE_MIN;
+        }
+        uint16 _feeBelowMax = uint16(
+            ((PROTOCOL_FEE_MAX - PROTOCOL_FEE_MIN) * _timeStaked) / PROTOCOL_FEE_DECAY
+        );
+        return _feeBelowMax > PROTOCOL_FEE_MAX ? PROTOCOL_FEE_MAX : PROTOCOL_FEE_MAX - _feeBelowMax;
     }
 
     function _removeLiquidity(

@@ -19,19 +19,19 @@ contract GetUniV3RebalancerInfo is Script {
 
         (
             ,
-            int24 _lowerTick,
-            int24 _upperTick,
-            uint160 _sqrtPriceAX96,
+            ,
+            ,
+            /* int24 _lowerTick, */ /* int24 _upperTick, */ uint160 _sqrtPriceAX96,
             uint160 _sqrtPriceBX96
         ) = rebalancer.currentPosition();
         uint256 _priceAX96 = FullMath.mulDiv(_sqrtPriceAX96, _sqrtPriceAX96, FixedPoint96.Q96);
         uint256 _priceBX96 = FullMath.mulDiv(_sqrtPriceBX96, _sqrtPriceBX96, FixedPoint96.Q96);
-        // (uint256 _fee0, uint256 _fee1) = rebalancer.pendingFees();
+        (uint256 _fee0, uint256 _fee1) = rebalancer.pendingFees();
 
         console.log("UniV3Rebalancer", address(rebalancer));
         console.log("Position ticks:");
-        console.logInt(_lowerTick);
-        console.logInt(_upperTick);
+        // console.logInt(_lowerTick);
+        // console.logInt(_upperTick);
         console.log(
             "Current & Upper/Lower Tick Prices",
             (_priceX96 * 10 ** _token0.decimals()) / FixedPoint96.Q96,
@@ -42,7 +42,7 @@ contract GetUniV3RebalancerInfo is Script {
         console.log("Total Liquidity", rebalancer.totalAssets());
         console.log("totalToken0Assets", rebalancer.totalToken0Assets());
         console.log("totalToken1Assets", rebalancer.totalToken1Assets());
-        // console.log("pendingFees", _fee0, _fee1);
+        console.log("pendingFees", _fee0, _fee1);
         console.log(
             "totalAssetsUSDC",
             rebalancer.totalToken1Assets() +
