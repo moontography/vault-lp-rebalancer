@@ -377,7 +377,16 @@ contract UniV3RebalancerTest is Test {
         // Perform upkeep
         (bool needsUpkeep, bytes memory performData) = rebalancer.checkUpkeep("");
         assertTrue(needsUpkeep, "Should need upkeep before performing it");
+
+        // TODO: get assets before rebalance on rebalancer
+        uint256 t0BalBefore = token0.balanceOf(address(rebalancer));
+        uint256 t1BalBefore = token1.balanceOf(address(rebalancer));
+
         rebalancer.performUpkeep(performData);
+
+        // TODO: get assets after rebalance on rebalancer and check
+        console.log("BALANCES0", t0BalBefore, token0.balanceOf(address(rebalancer)));
+        console.log("BALANCES1", t1BalBefore, token1.balanceOf(address(rebalancer)));
 
         (, int24 _lowerTick, int24 _upperTick, , ) = rebalancer.currentPosition();
 

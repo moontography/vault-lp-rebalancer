@@ -536,7 +536,7 @@ contract UniV3Rebalancer is AutomationCompatibleInterface, ERC4626 {
         _lowerTick = TickMath.getTickAtSqrtRatio(_sqrtPriceAX96);
         _lowerTick -= _lowerTick % _tickSpacing;
         _upperTick = TickMath.getTickAtSqrtRatio(_sqrtPriceBX96);
-        _upperTick -= _upperTick % _tickSpacing;
+        _upperTick = _upperTick + _tickSpacing - (_upperTick % _tickSpacing);
 
         _lowerTick = _lowerTick < TickMath.MIN_TICK ? TickMath.MIN_TICK : _lowerTick;
         _upperTick = _upperTick > TickMath.MAX_TICK ? TickMath.MAX_TICK : _upperTick;
