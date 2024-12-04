@@ -10,8 +10,7 @@ contract DeployUniV3Rebalancer is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
-        address _me = vm.envAddress("ME");
-        require(_me != address(0));
+        address _me = vm.addr(deployerPrivateKey);
 
         // Arbitrum WETH/USDC
         IUniswapV3Pool _pool = IUniswapV3Pool(0xC6962004f452bE9203591991D15f6b388e09E8D0);
